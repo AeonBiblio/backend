@@ -84,7 +84,7 @@ async def subscribe(
     return subscription
 
 
-@router.get("/me", response_model=UserSubscriptionOut)
+@router.get("/me", response_model=UserSubscriptionOut | None)
 async def get_my_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -94,10 +94,7 @@ async def get_my_subscription(
         .where(UserSubscription.user_id == current_user.id)
         .order_by(UserSubscription.started_at.desc())
     )
-    sub = result.scalars().first()
-    if not sub:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Подписка не найдена")
-    return sub
+    return result.scalars().first()
 
 
 @router.post("/me/cancel", response_model=UserSubscriptionOut)

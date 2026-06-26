@@ -61,9 +61,10 @@ async def test_subscribe_returns_404_for_missing_plan(client, db_session):
     assert response.status_code == 404
 
 
-async def test_current_subscription_returns_404_when_missing(client, db_session):
+async def test_current_subscription_returns_null_when_missing(client, db_session):
     user = await create_user(db_session, email="reader@example.com", username="reader")
 
     response = await client.get("/subscriptions/me", headers=auth_headers(user))
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json() is None
