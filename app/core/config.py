@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
 
     minio_endpoint: str = "localhost:9000"
+    minio_public_endpoint: str | None = None
     minio_access_key: str
     minio_secret_key: str
     minio_bucket: str = "aeonbiblio"
