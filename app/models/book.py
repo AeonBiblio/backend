@@ -45,7 +45,11 @@ class Book(Base, TimestampMixin):
     file_key: Mapped[str | None] = mapped_column(String, nullable=True)
     file_format: Mapped[str | None] = mapped_column(String, nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    status: Mapped[BookStatus] = mapped_column(Enum(BookStatus), nullable=False, default=BookStatus.draft)
+    status: Mapped[BookStatus] = mapped_column(
+        Enum(BookStatus, name="book_status"),
+        nullable=False,
+        default=BookStatus.draft,
+    )
     is_in_subscription: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     subscription_payout_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     is_for_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
