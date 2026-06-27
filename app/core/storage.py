@@ -1,4 +1,5 @@
 from datetime import timedelta
+from urllib.parse import urlparse, urlunparse
 
 from minio import Minio
 
@@ -38,6 +39,22 @@ def get_minio_public_client() -> Minio:
     return _public_client
 
 
+def with_public_path_prefix(url: str) -> str:
+    prefix = settings.minio_public_path_prefix.strip()
+
+    if not prefix:
+        return url
+
+    normalized_prefix = f"/{prefix.strip('/')}"
+    parsed = urlparse(url)
+    path = parsed.path if parsed.path.startswith("/") else f"/{parsed.path}"
+
+    if path.startswith(f"{normalized_prefix}/") or path == normalized_prefix:
+        return url
+
+    return urlunparse(parsed._replace(path=f"{normalized_prefix}{path}"))
+
+
 def ensure_bucket_exists() -> None:
     client = get_minio_client()
     if not client.bucket_exists(settings.minio_bucket):
@@ -47,19 +64,23 @@ def ensure_bucket_exists() -> None:
 def presigned_put_url(object_key: str, expires_seconds: int = 3600) -> str:
     ensure_bucket_exists()
     client = get_minio_public_client()
-    return client.presigned_put_object(
-        settings.minio_bucket,
-        object_key,
-        expires=timedelta(seconds=expires_seconds),
+    return with_public_path_prefix(
+        client.presigned_put_object(
+            settings.minio_bucket,
+            object_key,
+            expires=timedelta(seconds=expires_seconds),
+        )
     )
 
 
 def presigned_get_url(object_key: str, expires_seconds: int = 3600) -> str:
     client = get_minio_public_client()
-    return client.presigned_get_object(
-        settings.minio_bucket,
-        object_key,
-        expires=timedelta(seconds=expires_seconds),
+    return with_public_path_prefix(
+        client.presigned_get_object(
+            settings.minio_bucket,
+            object_key,
+            expires=timedelta(seconds=expires_seconds),
+        )
     )
 
 
