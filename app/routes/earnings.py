@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.author_stats import get_author_book_stats, get_author_stats
 from app.core.dependencies import get_current_user, get_db, require_active_subscription, require_author
+from app.core.payments import payment_profile_last4, require_saved_payment_profile
 from app.models.book import Book, BookStatus
 from app.models.earnings import (
     AuthorBalance,
@@ -179,7 +180,7 @@ async def purchase_book(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Купить книгу. Принимает данные карты — оплата всегда проходит (mock)."""
+    """Купить книгу. Mock-оплата списывает с сохранённой карты пользователя."""
     book_result = await db.execute(
         select(Book).where(
             Book.id == book_id,
@@ -213,7 +214,8 @@ async def purchase_book(
         price_paid = apply_discount(book.sale_price, promo.discount_percent)
 
     author_cut = (price_paid * Decimal("0.7")).quantize(Decimal("0.01"))
-    mock_payment_id = f"mock_{body.card_number[-4:]}"
+    payment_profile = await require_saved_payment_profile(db, current_user)
+    mock_payment_id = f"mock_{payment_profile_last4(payment_profile)}"
 
     purchase = Purchase(
         user_id=current_user.id,

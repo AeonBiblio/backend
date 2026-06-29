@@ -2,20 +2,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.models.book import BookStatus
-from tests.factories import auth_headers, create_author, create_book, create_review, create_user
-
-CARD = {
-    "card_number": "4111111111111111",
-    "cardholder_name": "TEST USER",
-    "expiry_month": 12,
-    "expiry_year": 2030,
-    "cvv": "123",
-}
+from tests.factories import auth_headers, create_author, create_book, create_payment_profile, create_review, create_user
 
 
 async def test_book_includes_reviews_count(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author)
     await create_review(db_session, book=book, user=reader)
 
@@ -124,7 +117,7 @@ async def test_author_stats_books_with_search(client, db_session):
     await client.post(
         f"/earnings/purchases/{book_a.id}",
         headers=auth_headers(reader),
-        json=CARD,
+        json={},
     )
 
     stats = await client.get(

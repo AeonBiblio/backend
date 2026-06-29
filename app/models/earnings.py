@@ -52,7 +52,11 @@ class Purchase(Base):
     book_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("books.id"), nullable=False)
     price_paid: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     author_earning: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), nullable=False, default=PaymentStatus.pending)
+    status: Mapped[PaymentStatus] = mapped_column(
+        Enum(PaymentStatus, name="payment_status"),
+        nullable=False,
+        default=PaymentStatus.pending,
+    )
     external_payment_id: Mapped[str | None] = mapped_column(String, nullable=True)
     purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -82,7 +86,9 @@ class EarningTransaction(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    source_type: Mapped[EarningSource] = mapped_column(Enum(EarningSource), nullable=False)
+    source_type: Mapped[EarningSource] = mapped_column(
+        Enum(EarningSource, name="earning_source"), nullable=False
+    )
     source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -100,7 +106,11 @@ class PayoutRequest(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    status: Mapped[PayoutStatus] = mapped_column(Enum(PayoutStatus), nullable=False, default=PayoutStatus.pending)
+    status: Mapped[PayoutStatus] = mapped_column(
+        Enum(PayoutStatus, name="payout_status"),
+        nullable=False,
+        default=PayoutStatus.pending,
+    )
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

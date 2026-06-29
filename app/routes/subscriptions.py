@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.payments import payment_profile_last4, require_saved_payment_profile
 from app.models.subscription import (
     PaymentStatus,
     SubscriptionPayment,
@@ -13,7 +14,6 @@ from app.models.subscription import (
     UserSubscription,
 )
 from app.models.user import User
-from app.schemas.payment import MockCardIn
 from app.schemas.subscription import (
     SubscribeRequest,
     SubscriptionPaymentOut,
@@ -30,17 +30,13 @@ async def list_plans(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-class SubscribeWithCard(SubscribeRequest):
-    card: MockCardIn
-
-
 @router.post("/subscribe", response_model=UserSubscriptionOut, status_code=status.HTTP_201_CREATED)
 async def subscribe(
-    body: SubscribeWithCard,
+    body: SubscribeRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Оформить подписку. Принимает данные карты — оплата всегда проходит (mock)."""
+    """Оформить подписку. Mock-оплата списывает с сохранённой карты пользователя."""
     plan_result = await db.execute(
         select(SubscriptionPlan).where(SubscriptionPlan.id == body.plan_id, SubscriptionPlan.is_active == True)
     )
@@ -69,7 +65,8 @@ async def subscribe(
     db.add(subscription)
     await db.flush()
 
-    mock_payment_id = f"mock_{body.card.card_number[-4:]}"
+    payment_profile = await require_saved_payment_profile(db, current_user)
+    mock_payment_id = f"mock_{payment_profile_last4(payment_profile)}"
     payment = SubscriptionPayment(
         user_subscription_id=subscription.id,
         amount=plan.price,

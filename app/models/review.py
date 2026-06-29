@@ -26,7 +26,9 @@ class Review(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     sentiment: Mapped[ReviewSentiment] = mapped_column(
-        Enum(ReviewSentiment), nullable=False, default=ReviewSentiment.neutral
+        Enum(ReviewSentiment, name="review_sentiment"),
+        nullable=False,
+        default=ReviewSentiment.neutral,
     )
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -6,29 +6,22 @@ from tests.factories import (
     create_author_balance,
     create_author,
     create_book,
+    create_payment_profile,
     create_subscription_plan,
     create_user,
 )
 
 
-CARD = {
-    "card_number": "4111111111111111",
-    "cardholder_name": "TEST USER",
-    "expiry_month": 12,
-    "expiry_year": 2030,
-    "cvv": "123",
-}
-
-
 async def test_purchase_book_credits_author_and_lists_purchase(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author, sale_price=Decimal("100.00"))
 
     purchase = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json=CARD,
+        json={},
     )
     assert purchase.status_code == 201
     assert purchase.json()["author_earning"] == "70.00"
@@ -36,7 +29,7 @@ async def test_purchase_book_credits_author_and_lists_purchase(client, db_sessio
     duplicate = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json=CARD,
+        json={},
     )
     assert duplicate.status_code == 409
 
@@ -61,12 +54,13 @@ async def test_purchase_book_credits_author_and_lists_purchase(client, db_sessio
 async def test_purchase_book_returns_404_when_not_for_sale(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author, is_for_sale=False)
 
     response = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json=CARD,
+        json={},
     )
 
     assert response.status_code == 404

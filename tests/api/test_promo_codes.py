@@ -5,19 +5,11 @@ from tests.factories import (
     auth_headers,
     create_author,
     create_book,
+    create_payment_profile,
     create_promo_code,
     create_review,
     create_user,
 )
-
-CARD = {
-    "card_number": "4111111111111111",
-    "cardholder_name": "TEST USER",
-    "expiry_month": 12,
-    "expiry_year": 2030,
-    "cvv": "123",
-}
-
 
 async def test_author_issues_promo_for_review(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
@@ -94,6 +86,7 @@ async def test_author_cannot_issue_promo_to_self(client, db_session):
 async def test_purchase_with_promo_on_another_author_book(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book_a = await create_book(db_session, author=author, title="Book A", sale_price=Decimal("100.00"))
     book_b = await create_book(db_session, author=author, title="Book B", sale_price=Decimal("200.00"))
     review = await create_review(db_session, book=book_a, user=reader)
@@ -108,7 +101,7 @@ async def test_purchase_with_promo_on_another_author_book(client, db_session):
     purchase = await client.post(
         f"/earnings/purchases/{book_b.id}",
         headers=auth_headers(reader),
-        json={**CARD, "promo_code": promo_code},
+        json={"promo_code": promo_code},
     )
 
     assert purchase.status_code == 201
@@ -120,6 +113,7 @@ async def test_purchase_with_promo_wrong_recipient(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
     other = await create_user(db_session, email="other@example.com", username="other")
+    await create_payment_profile(db_session, user=other)
     book = await create_book(db_session, author=author)
     review = await create_review(db_session, book=book, user=reader)
     promo = await create_promo_code(db_session, review=review, author=author, recipient=reader)
@@ -127,7 +121,7 @@ async def test_purchase_with_promo_wrong_recipient(client, db_session):
     response = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(other),
-        json={**CARD, "promo_code": promo.code},
+        json={"promo_code": promo.code},
     )
 
     assert response.status_code == 403
@@ -136,6 +130,7 @@ async def test_purchase_with_promo_wrong_recipient(client, db_session):
 async def test_purchase_with_used_promo(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author)
     review = await create_review(db_session, book=book, user=reader)
     promo = await create_promo_code(
@@ -149,7 +144,7 @@ async def test_purchase_with_used_promo(client, db_session):
     response = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json={**CARD, "promo_code": promo.code},
+        json={"promo_code": promo.code},
     )
 
     assert response.status_code == 400
@@ -158,6 +153,7 @@ async def test_purchase_with_used_promo(client, db_session):
 async def test_purchase_with_expired_promo(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author)
     review = await create_review(db_session, book=book, user=reader)
     promo = await create_promo_code(
@@ -171,7 +167,7 @@ async def test_purchase_with_expired_promo(client, db_session):
     response = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json={**CARD, "promo_code": promo.code},
+        json={"promo_code": promo.code},
     )
 
     assert response.status_code == 400
@@ -180,12 +176,13 @@ async def test_purchase_with_expired_promo(client, db_session):
 async def test_purchase_without_promo_unchanged(client, db_session):
     author = await create_author(db_session, email="author@example.com", username="author")
     reader = await create_user(db_session, email="reader@example.com", username="reader")
+    await create_payment_profile(db_session, user=reader)
     book = await create_book(db_session, author=author, sale_price=Decimal("100.00"))
 
     purchase = await client.post(
         f"/earnings/purchases/{book.id}",
         headers=auth_headers(reader),
-        json=CARD,
+        json={},
     )
 
     assert purchase.status_code == 201

@@ -95,6 +95,16 @@ async def test_avatar_presigned_flow_updates_avatar_key(client, db_session):
     assert confirm.status_code == 200
     assert confirm.json()["avatar_key"] == upload.json()["object_key"]
 
+    media = await client.get(f"/media/{upload.json()['object_key']}", follow_redirects=False)
+    assert media.status_code == 307
+    assert media.headers["location"].startswith("https://storage.test/get/avatars/")
+
+
+async def test_media_rejects_private_book_objects(client):
+    response = await client.get("/media/books/private.epub", follow_redirects=False)
+
+    assert response.status_code == 404
+
 
 async def test_payment_profile_can_be_created_and_read(client, db_session):
     user = await create_user(db_session, email="me@example.com", username="meuser")
@@ -106,16 +116,22 @@ async def test_payment_profile_can_be_created_and_read(client, db_session):
         "/users/me/payment-profile",
         headers=auth_headers(user),
         json={
-            "payout_requisites_encrypted": "encrypted",
-            "payment_method_token": "pm_mock",
+            "card_number": "4111111111111111",
+            "cardholder_name": "TEST USER",
+            "expiry_month": 12,
+            "expiry_year": 2030,
+            "cvv": "123",
         },
     )
     assert updated.status_code == 200
+    assert updated.json()["card_last_digits"] == "1111"
+    assert updated.json()["card_last4"] == "1111"
 
     response = await client.get("/users/me/payment-profile", headers=auth_headers(user))
 
     assert response.status_code == 200
-    assert response.json()["payment_method_token"] == "pm_mock"
+    assert response.json()["card_last_digits"] == "1111"
+    assert response.json()["card_last4"] == "1111"
 
 
 async def test_public_profile_by_username(client, db_session):

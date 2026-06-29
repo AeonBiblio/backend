@@ -5,6 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
+from app.core.payments import make_mock_payment_token, payment_profile_last4
 from app.core.security import hash_password, verify_password
 from app.core.storage import presigned_put_url
 from app.models.promo import PromoCode
@@ -20,6 +21,19 @@ from app.schemas.user import (
 )
 
 router = APIRouter()
+
+
+def _payment_profile_out(profile: PaymentProfile) -> PaymentProfileOut:
+    last4 = payment_profile_last4(profile)
+    return PaymentProfileOut(
+        id=profile.id,
+        user_id=profile.user_id,
+        payout_requisites_encrypted=profile.payout_requisites_encrypted,
+        payment_method_token=profile.payment_method_token,
+        card_last_digits=last4,
+        card_last4=last4,
+        updated_at=profile.updated_at,
+    )
 
 
 @router.get("/by-username/{username}", response_model=PublicUserOut)
@@ -116,7 +130,7 @@ async def get_payment_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Платёжный профиль не найден")
-    return profile
+    return _payment_profile_out(profile)
 
 
 @router.patch("/me/payment-profile", response_model=PaymentProfileOut)
@@ -136,9 +150,11 @@ async def upsert_payment_profile(
 
     if body.payout_requisites_encrypted is not None:
         profile.payout_requisites_encrypted = body.payout_requisites_encrypted
+    if body.card_number is not None:
+        profile.payment_method_token = make_mock_payment_token(body.card_number)
     if body.payment_method_token is not None:
         profile.payment_method_token = body.payment_method_token
 
     await db.commit()
     await db.refresh(profile)
-    return profile
+    return _payment_profile_out(profile)

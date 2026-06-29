@@ -19,5 +19,5 @@ class MockCardIn(BaseModel):
         return digits
 
 
-class PurchaseWithPromo(MockCardIn):
+class PurchaseWithPromo(BaseModel):
     promo_code: str | None = None
