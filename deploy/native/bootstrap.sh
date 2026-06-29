@@ -161,7 +161,7 @@ INIT
 chmod +x /etc/init.d/aeon-api
 
 echo "==> Frontend build..."
-run_as_team16 "cd '${FRONTEND_DIR}' && sed -i \"s|baseURL: 'http://localhost:8000'|baseURL: '/api'|\" src/shared/api/client/api-client.ts && pnpm install && pnpm build"
+run_as_team16 "cd '${FRONTEND_DIR}' && (grep -q '^VITE_API_BASE_URL=' .env 2>/dev/null && sed -i 's|^VITE_API_BASE_URL=.*|VITE_API_BASE_URL=/api|' .env || printf '\nVITE_API_BASE_URL=/api\n' >> .env) && pnpm install && pnpm build"
 
 cat >/etc/init.d/aeon-frontend <<INIT
 #!/bin/sh
