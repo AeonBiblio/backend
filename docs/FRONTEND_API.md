@@ -48,18 +48,19 @@ docker compose up --build
 
 ## Аутентификация
 
-Все защищённые запросы:
+Авторизация работает через httpOnly cookies. После логина backend выставляет:
 
-```http
-Authorization: Bearer <access_token>
-```
+- `aeon_access_token`
+- `aeon_refresh_token`
+
+Frontend не хранит JWT в `localStorage` и не отправляет `Authorization`. Для cross-origin dev-запросов HTTP-клиент должен использовать `withCredentials: true`.
 
 | Метод | Endpoint | Тело | Ответ |
 |-------|----------|------|-------|
 | POST | `/auth/register` | см. ниже | `UserOut` (201) |
-| POST | `/auth/login` | `{ email, password }` | `TokenPair` (200) |
-| POST | `/auth/refresh` | `{ refresh_token }` | `TokenPair` (200) |
-| POST | `/auth/logout` | `{ refresh_token }` | 204 |
+| POST | `/auth/login` | `{ email, password }` | `UserOut` (200) + auth cookies |
+| POST | `/auth/refresh` | — | `{ "ok": true }` + обновлённые cookies |
+| POST | `/auth/logout` | — | 204 + очистка cookies |
 
 ### POST /auth/register
 
@@ -81,17 +82,7 @@ Authorization: Bearer <access_token>
 
 **Важно:** роль задаётся **только при регистрации**. После создания аккаунта её нельзя сменить через API.
 
-### TokenPair
-
-```json
-{
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
-  "token_type": "bearer"
-}
-```
-
-При `401` на любом запросе — обновите access token через `/auth/refresh`. Если refresh тоже истёк — перенаправьте на логин.
+При `401` на любом защищённом запросе вызовите `POST /auth/refresh` с `withCredentials: true` и повторите исходный запрос. Если refresh тоже вернул `401`, перенаправьте на логин.
 
 ---
 
@@ -177,6 +168,7 @@ if (route.meta.requiresAuthor && !isAuthor(currentUser)) {
 | Endpoint | Доступ |
 |----------|--------|
 | `GET /books` | 🌐 (фильтры: q, status, author_id, genre_tag_id, …) |
+| `GET /books/genres` | 🌐 |
 | `GET /books/recommendations` | 🌐 / 👤 (если передан token — персонализация) |
 | `GET /books/{id}` | 🌐 |
 | `GET /books/{id}/rating` | 🌐 / 👤 (my_rating если token) |
@@ -187,8 +179,11 @@ if (route.meta.requiresAuthor && !isAuthor(currentUser)) {
 | `POST /books/{id}/user-tags` | 📖 |
 | `DELETE /books/{id}/user-tags/{tag_id}` | 📖 |
 | `GET /books/{id}/access` | 📖 |
-| `GET /books/{id}/content` | 📖 (нужен доступ: подписка / покупка / автор книги) |
-| `GET /books/{id}/content/chunk` | 📖 |
+| `GET /books/{id}/reader-manifest` | 📖 (EPUB/FB2 главы для offline-first) |
+| `GET /books/{id}/chapters/{chapter_id}` | 📖 (EPUB/FB2 глава) |
+| `GET /books/{id}/assets/{asset_id}` | 📖 (EPUB/FB2 asset) |
+| `GET /books/{id}/content` | 📖 (поддерживает `Range` для PDF.js/OPFS) |
+| `GET /books/{id}/content/chunk` | 📖 (legacy/custom чанки) |
 
 ### Books — управление (только автор)
 
@@ -204,7 +199,7 @@ if (route.meta.requiresAuthor && !isAuthor(currentUser)) {
 | `POST /books/{id}/file` | ✍️ | только свои |
 | `PATCH /books/{id}/file-key` | ✍️ | только свои |
 | `PUT /books/{id}/genre-tags` | ✍️ | только свои |
-| `POST /genre-tags` | ✍️ | — |
+| `POST /books/genre-tags` | ✍️ | — |
 
 ### Reviews
 
@@ -265,13 +260,13 @@ if (route.meta.requiresAuthor && !isAuthor(currentUser)) {
 | Регистрация автора | `POST /auth/register` | `{ role: "author" }` |
 | Вход | `POST /auth/login` | role в ответе через `/users/me` |
 | Главная / каталог | `GET /books`, `/books/recommendations` | |
-| Фильтр жанра | `GET /books?genre_tag_id=` | |
+| Фильтр жанра | `GET /books/genres`, затем `GET /books?genre_tag_id=` | |
 | Страница книги | `GET /books/{id}`, `/rating`, `/reviews` | |
 | Оценка 1–10 | `PUT /books/{id}/rating` | `{ score: 8 }` |
 | Рецензия | `POST /books/{id}/reviews` | `sentiment`: positive/negative/neutral |
 | Лайки отзыва | `PUT/DELETE /reviews/{id}/vote` | |
 | Выдать купон (автор) | `POST /reviews/{id}/promo-code` | только если `user.role === "author"` |
-| Читалка | `/books/{id}/access`, `/content`, `/content/chunk` | |
+| Читалка | `/books/{id}/access`, EPUB/FB2: `/reader-manifest` + `/chapters`, PDF: `/content` с `Range` | |
 | Покупка | `POST /earnings/purchases/{id}` | `promo_code` опционально |
 | Подписка | `/subscriptions/*` | |
 | ЛК читателя | `/library/recent`, `/library/readlists`, `/subscriptions/me`, `/users/me/promo-codes` | |
@@ -368,6 +363,18 @@ Query-параметры:
 ### GET /books/{id}
 
 Те же поля + `description`, `file_format`, `file_size_bytes`, `my_rating` (если авторизован).
+Для EPUB/FB2 дополнительно приходят `reader_processing_status`, `reader_processing_error`, `reader_manifest_version`.
+
+### GET /books/genres
+
+Публичный список всех жанров, заведённых в системе. Используйте его для фильтра каталога.
+
+```json
+[
+  { "id": "uuid", "name": "Фэнтези" },
+  { "id": "uuid", "name": "Роман" }
+]
+```
 
 ### Рейтинг 1–10 (отдельно от текстовых рецензий)
 
@@ -651,11 +658,64 @@ GET /books/{id}/access
   "can_read": true,
   "reason": null,
   "file_size_bytes": 1048576,
-  "file_format": "epub"
+  "file_format": "epub",
+  "reader_processing_status": "ready",
+  "reader_manifest_version": 2
 }
 ```
 
 Если `can_read: false`, покажите CTA: купить / оформить подписку.
+
+### EPUB/FB2 reader manifest
+
+Для EPUB и FB2 основной источник читалки - не raw файл, а нормализованные главы:
+
+```http
+GET /books/{id}/reader-manifest
+GET /books/{id}/chapters/{chapter_id}
+GET /books/{id}/assets/{asset_id}
+```
+
+Manifest:
+
+```json
+{
+  "book_id": "uuid",
+  "format": "epub",
+  "version": 2,
+  "title": "Book title",
+  "processing_status": "ready",
+  "chapters": [
+    {
+      "id": "uuid",
+      "index": 0,
+      "title": "Глава 1",
+      "size_bytes": 48213,
+      "href": "/books/uuid/chapters/uuid",
+      "asset_ids": ["asset_id"]
+    }
+  ],
+  "assets": [
+    { "id": "asset_id", "href": "/books/uuid/assets/asset_id" }
+  ]
+}
+```
+
+Глава:
+
+```json
+{
+  "id": "uuid",
+  "book_id": "uuid",
+  "index": 0,
+  "title": "Глава 1",
+  "content_type": "html",
+  "html": "<html>...</html>",
+  "asset_ids": ["asset_id"]
+}
+```
+
+Если `processing_status` не `ready`, фронт может показать ожидание/ошибку или fallback на raw `/content`.
 
 ```http
 GET /books/{id}/content
@@ -663,7 +723,24 @@ GET /books/{id}/content/chunk?offset=0&size=262144
 ```
 
 - Прямого **download** нет — только inline-чтение (`Content-Disposition: inline`).
-- Chunk — для постраничной/потоковой подгрузки (до 1 MiB за запрос).
+- Для PDF используйте стандартный HTTP Range на `/content`, чтобы PDF.js мог стримить файл:
+
+```http
+GET /books/{id}/content
+Range: bytes=0-1048575
+```
+
+Ответ:
+
+```http
+206 Partial Content
+Content-Type: application/pdf
+Accept-Ranges: bytes
+Content-Range: bytes 0-1048575/{total_size}
+Content-Disposition: inline
+```
+
+- `/content/chunk` остаётся для кастомного загрузчика (до 1 MiB за запрос), но для PDF предпочтительнее `Range`.
 
 ### Логика доступа (`can_read`)
 
@@ -796,10 +873,8 @@ sequenceDiagram
 
 ```typescript
 // После login сохраните tokens + загрузите профиль
-const { access_token, refresh_token } = await login(email, password);
-localStorage.setItem("access_token", access_token);
-localStorage.setItem("refresh_token", refresh_token);
-const me = await api.get("/users/me");
+await api.post("/auth/login", { email, password }, { withCredentials: true });
+const me = await api.get("/users/me", { withCredentials: true });
 setUser(me.data); // включая role
 ```
 
@@ -811,10 +886,7 @@ api.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401 && !error.config._retry) {
       error.config._retry = true;
-      const refresh = localStorage.getItem("refresh_token");
-      const { data } = await axios.post("/auth/refresh", { refresh_token: refresh });
-      localStorage.setItem("access_token", data.access_token);
-      error.config.headers.Authorization = `Bearer ${data.access_token}`;
+      await axios.post("/auth/refresh", {}, { withCredentials: true });
       return api(error.config);
     }
     return Promise.reject(error);
@@ -846,9 +918,20 @@ api.interceptors.response.use(
 
 ### 5. Обложки и аватары
 
-`cover_key` и `avatar_key` — ключи объектов в MinIO. Для dev можно:
-- запрашивать presigned GET на backend (если добавите proxy);
-- или собирать URL по convention вашего окружения.
+`cover_key` и `avatar_key` — ключи объектов в MinIO. Для публичных медиа используйте backend-прокладку:
+
+```text
+GET /media/{object_key}
+```
+
+Примеры:
+
+```text
+http://localhost:8000/media/avatars/{user_id}.jpg
+http://localhost:8000/media/covers/{book_id}.jpg
+```
+
+Backend отдаёт `307` на временный presigned MinIO URL. Префикс `books/` через `/media` не открыт.
 
 ### 6. Деньги
 

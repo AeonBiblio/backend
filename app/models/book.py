@@ -10,6 +10,8 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -26,6 +28,13 @@ class BookStatus(str, enum.Enum):
     pending = "pending"
     published = "published"
     rejected = "rejected"
+
+
+class ReaderProcessingStatus(str, enum.Enum):
+    none = "none"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
 
 
 class Book(Base, TimestampMixin):
@@ -56,10 +65,39 @@ class Book(Base, TimestampMixin):
     sale_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reader_processing_status: Mapped[ReaderProcessingStatus] = mapped_column(
+        Enum(ReaderProcessingStatus, name="reader_processing_status"),
+        nullable=False,
+        default=ReaderProcessingStatus.none,
+    )
+    reader_processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reader_manifest_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     author: Mapped["app.models.user.User"] = relationship("User", foreign_keys=[author_id])
     genre_tags: Mapped[list["BookGenreTag"]] = relationship(back_populates="book", cascade="all, delete-orphan")
     user_tags: Mapped[list["BookUserTag"]] = relationship(back_populates="book", cascade="all, delete-orphan")
+    epub_chapters: Mapped[list["EpubChapter"]] = relationship(back_populates="book", cascade="all, delete-orphan")
+
+
+class EpubChapter(Base):
+    __tablename__ = "epub_chapters"
+    __table_args__ = (
+        UniqueConstraint("book_id", "chapter_index", name="uq_epub_chapter_index"),
+        Index("ix_epub_chapters_book_id", "book_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("books.id"), nullable=False)
+    chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_href: Mapped[str] = mapped_column(String, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False, default="html")
+    html: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    asset_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    book: Mapped["Book"] = relationship(back_populates="epub_chapters")
 
 
 class GenreTag(Base):

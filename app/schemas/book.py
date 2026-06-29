@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from app.models.book import BookStatus
+from app.models.book import BookStatus, ReaderProcessingStatus
 
 
 class GenreTagOut(BaseModel):
@@ -57,6 +57,9 @@ class BookOut(BaseModel):
     sale_price: Decimal | None
     rejection_reason: str | None
     published_at: datetime | None
+    reader_processing_status: ReaderProcessingStatus
+    reader_processing_error: str | None
+    reader_manifest_version: int
     created_at: datetime
     updated_at: datetime
     average_rating: Decimal | None = None
@@ -104,8 +107,44 @@ class BookAccessOut(BaseModel):
     reason: str
     file_size_bytes: int | None = None
     file_format: str | None = None
+    reader_processing_status: ReaderProcessingStatus | None = None
+    reader_manifest_version: int | None = None
 
 
 class BookRecommendationsOut(BaseModel):
     new: list[BookListItem]
     popular: list[BookListItem]
+
+
+class ReaderManifestChapterOut(BaseModel):
+    id: uuid.UUID
+    index: int
+    title: str | None
+    size_bytes: int
+    href: str
+    asset_ids: list[str]
+
+
+class ReaderManifestAssetOut(BaseModel):
+    id: str
+    href: str
+
+
+class ReaderManifestOut(BaseModel):
+    book_id: uuid.UUID
+    format: str
+    version: int
+    title: str
+    processing_status: ReaderProcessingStatus
+    chapters: list[ReaderManifestChapterOut]
+    assets: list[ReaderManifestAssetOut]
+
+
+class ReaderChapterOut(BaseModel):
+    id: uuid.UUID
+    book_id: uuid.UUID
+    index: int
+    title: str | None
+    content_type: str
+    html: str
+    asset_ids: list[str]

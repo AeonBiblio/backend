@@ -3,20 +3,31 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access import check_book_access
 from app.core.book_rating import batch_reviews_count, get_book_rating_stats
 from app.core.dependencies import get_current_user, get_db, get_optional_current_user, require_author
+from app.core.epub import get_epub_asset, parse_epub
+from app.core.fb2 import get_fb2_asset, parse_fb2
 from app.core.storage import (
     get_object_bytes,
     get_object_size,
     presigned_put_url,
     read_object_range,
 )
-from app.models.book import Book, BookGenreTag, BookStatus, BookUserTag, GenreTag, UserTag
+from app.models.book import (
+    Book,
+    BookGenreTag,
+    BookStatus,
+    BookUserTag,
+    EpubChapter,
+    GenreTag,
+    ReaderProcessingStatus,
+    UserTag,
+)
 from app.models.book_rating import BookRating
 from app.models.earnings import Purchase, SubscriptionRead
 from app.models.user import User
@@ -30,6 +41,10 @@ from app.schemas.book import (
     BookUpdate,
     GenreTagCreate,
     GenreTagOut,
+    ReaderChapterOut,
+    ReaderManifestAssetOut,
+    ReaderManifestChapterOut,
+    ReaderManifestOut,
     UploadUrlResponse,
     UserTagCreate,
     UserTagOut,
@@ -173,10 +188,19 @@ async def create_book(
 
 # ---------- Genre tags ----------
 
+async def _list_genre_tags(db: AsyncSession) -> list[GenreTag]:
+    result = await db.execute(select(GenreTag).order_by(GenreTag.name))
+    return list(result.scalars().all())
+
+
+@router.get("/genres", response_model=list[GenreTagOut])
+async def list_genres(db: AsyncSession = Depends(get_db)):
+    return await _list_genre_tags(db)
+
+
 @router.get("/genre-tags/all", response_model=list[GenreTagOut])
 async def list_genre_tags(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(GenreTag))
-    return result.scalars().all()
+    return await _list_genre_tags(db)
 
 
 @router.post("/genre-tags", response_model=GenreTagOut, status_code=status.HTTP_201_CREATED)
@@ -384,11 +408,12 @@ async def confirm_file(
 ):
     book = await _get_own_book(book_id, current_user.id, db)
     book.file_key = object_key
-    book.file_format = file_format
+    book.file_format = file_format.lower()
     book.file_size_bytes = file_size_bytes
+    await _process_reader_content(book, db)
     await db.commit()
     await db.refresh(book)
-    return book
+    return await _book_to_out(book, db, current_user.id)
 
 
 @router.get("/{book_id}/access", response_model=BookAccessOut)
@@ -407,12 +432,120 @@ async def get_book_access(
         reason=reason,
         file_size_bytes=book.file_size_bytes,
         file_format=book.file_format,
+        reader_processing_status=book.reader_processing_status,
+        reader_manifest_version=book.reader_manifest_version,
+    )
+
+
+@router.get("/{book_id}/reader-manifest", response_model=ReaderManifestOut)
+async def get_reader_manifest(
+    book_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await _get_book_or_404(book_id, db)
+    can_read, reason = await check_book_access(current_user, book, db)
+    if not can_read:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    if book.file_format not in {"epub", "fb2"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reader manifest доступен только для EPUB и FB2",
+        )
+
+    result = await db.execute(
+        select(EpubChapter)
+        .where(EpubChapter.book_id == book.id)
+        .order_by(EpubChapter.chapter_index)
+    )
+    chapters = list(result.scalars().all())
+    asset_ids = sorted({asset_id for chapter in chapters for asset_id in chapter.asset_ids})
+    return ReaderManifestOut(
+        book_id=book.id,
+        format=book.file_format,
+        version=book.reader_manifest_version,
+        title=book.title,
+        processing_status=book.reader_processing_status,
+        chapters=[
+            ReaderManifestChapterOut(
+                id=chapter.id,
+                index=chapter.chapter_index,
+                title=chapter.title,
+                size_bytes=chapter.size_bytes,
+                href=f"/books/{book.id}/chapters/{chapter.id}",
+                asset_ids=chapter.asset_ids,
+            )
+            for chapter in chapters
+        ],
+        assets=[
+            ReaderManifestAssetOut(id=asset_id, href=f"/books/{book.id}/assets/{asset_id}")
+            for asset_id in asset_ids
+        ],
+    )
+
+
+@router.get("/{book_id}/chapters/{chapter_id}", response_model=ReaderChapterOut)
+async def get_reader_chapter(
+    book_id: uuid.UUID,
+    chapter_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await _get_book_or_404(book_id, db)
+    can_read, reason = await check_book_access(current_user, book, db)
+    if not can_read:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+
+    result = await db.execute(
+        select(EpubChapter).where(
+            EpubChapter.book_id == book.id,
+            EpubChapter.id == chapter_id,
+        )
+    )
+    chapter = result.scalar_one_or_none()
+    if not chapter:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+    return ReaderChapterOut(
+        id=chapter.id,
+        book_id=chapter.book_id,
+        index=chapter.chapter_index,
+        title=chapter.title,
+        content_type=chapter.content_type,
+        html=chapter.html,
+        asset_ids=chapter.asset_ids,
+    )
+
+
+@router.get("/{book_id}/assets/{asset_id}")
+async def get_reader_asset(
+    book_id: uuid.UUID,
+    asset_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await _get_book_or_404(book_id, db)
+    can_read, reason = await check_book_access(current_user, book, db)
+    if not can_read:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    if book.file_format not in {"epub", "fb2"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assets доступны только для EPUB и FB2")
+
+    try:
+        content, media_type = _get_reader_asset_bytes(book, asset_id)
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset не найден")
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 
 @router.get("/{book_id}/content")
 async def read_book_content(
     book_id: uuid.UUID,
+    range_header: str | None = Header(default=None, alias="Range"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -422,15 +555,38 @@ async def read_book_content(
     if not can_read:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
-    content = get_object_bytes(book.file_key)
     media_type = _media_type_for_format(book.file_format)
+    base_headers = {
+        "Content-Disposition": "inline",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+    }
+
+    if range_header:
+        total_size = get_object_size(book.file_key)
+        start, end = _parse_range_header(range_header, total_size)
+        chunk = read_object_range(book.file_key, start, end - start + 1)
+        return Response(
+            content=chunk,
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type=media_type,
+            headers={
+                **base_headers,
+                "Content-Range": f"bytes {start}-{end}/{total_size}",
+                "Content-Length": str(len(chunk)),
+                "X-Content-Total-Size": str(total_size),
+            },
+        )
+
+    content = get_object_bytes(book.file_key)
+    total_size = len(content)
     return Response(
         content=content,
         media_type=media_type,
         headers={
-            "Content-Disposition": "inline",
-            "X-Content-Total-Size": str(len(content)),
-            "Cache-Control": "no-store",
+            **base_headers,
+            "Content-Length": str(len(content)),
+            "X-Content-Total-Size": str(total_size),
         },
     )
 
@@ -589,9 +745,56 @@ async def remove_user_tag_from_book(
 def _media_type_for_format(file_format: str | None) -> str:
     if file_format == "epub":
         return "application/epub+zip"
+    if file_format == "pdf":
+        return "application/pdf"
     if file_format == "fb2":
         return "application/xml"
     return "application/octet-stream"
+
+
+def _parse_range_header(range_header: str, total_size: int) -> tuple[int, int]:
+    if not range_header.startswith("bytes="):
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Invalid range",
+            headers={"Content-Range": f"bytes */{total_size}"},
+        )
+
+    range_value = range_header.removeprefix("bytes=").strip()
+    if "," in range_value or "-" not in range_value:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Invalid range",
+            headers={"Content-Range": f"bytes */{total_size}"},
+        )
+
+    start_raw, end_raw = range_value.split("-", 1)
+    try:
+        if start_raw:
+            start = int(start_raw)
+            end = int(end_raw) if end_raw else total_size - 1
+        else:
+            suffix_size = int(end_raw)
+            if suffix_size <= 0:
+                raise ValueError
+            start = max(total_size - suffix_size, 0)
+            end = total_size - 1
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Invalid range",
+            headers={"Content-Range": f"bytes */{total_size}"},
+        ) from exc
+
+    end = min(end, total_size - 1)
+    if start < 0 or start >= total_size or start > end:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{total_size}"},
+        )
+
+    return start, end
 
 
 async def _get_book_or_404(book_id: uuid.UUID, db: AsyncSession) -> Book:
@@ -610,3 +813,63 @@ async def _get_own_book(book_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
     if book.author_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет доступа")
     return book
+
+
+async def _process_reader_content(book: Book, db: AsyncSession) -> None:
+    existing = await db.execute(select(EpubChapter).where(EpubChapter.book_id == book.id))
+    for chapter in existing.scalars().all():
+        await db.delete(chapter)
+
+    if book.file_format not in {"epub", "fb2"}:
+        book.reader_processing_status = ReaderProcessingStatus.none
+        book.reader_processing_error = None
+        return
+
+    book.reader_processing_status = ReaderProcessingStatus.processing
+    book.reader_processing_error = None
+    await db.flush()
+
+    try:
+        parsed = _parse_reader_content(book)
+    except Exception as exc:
+        book.reader_processing_status = ReaderProcessingStatus.failed
+        book.reader_processing_error = str(exc)[:1000]
+        return
+
+    now = datetime.now(timezone.utc)
+    for chapter in parsed.chapters:
+        db.add(
+            EpubChapter(
+                book_id=book.id,
+                chapter_index=chapter.index,
+                title=chapter.title,
+                source_href=chapter.source_href,
+                content_type="html",
+                html=chapter.html,
+                size_bytes=chapter.size_bytes,
+                asset_ids=chapter.asset_ids,
+                created_at=now,
+            )
+        )
+
+    book.reader_processing_status = ReaderProcessingStatus.ready
+    book.reader_processing_error = None
+    book.reader_manifest_version = (book.reader_manifest_version or 0) + 1
+
+
+def _parse_reader_content(book: Book):
+    content = get_object_bytes(book.file_key)
+    if book.file_format == "epub":
+        return parse_epub(content)
+    if book.file_format == "fb2":
+        return parse_fb2(content)
+    raise ValueError("Unsupported reader format")
+
+
+def _get_reader_asset_bytes(book: Book, asset_id: str) -> tuple[bytes, str]:
+    content = get_object_bytes(book.file_key)
+    if book.file_format == "epub":
+        return get_epub_asset(content, asset_id)
+    if book.file_format == "fb2":
+        return get_fb2_asset(content, asset_id)
+    raise KeyError(asset_id)

@@ -26,6 +26,7 @@ from app.main import app  # noqa: E402
 # Import model modules so SQLAlchemy metadata contains all tables.
 from app.models import book, book_rating, earnings, library, promo, review, review_vote, subscription, user  # noqa: F401,E402
 from app.routes import books as books_routes  # noqa: E402
+from app.routes import media as media_routes  # noqa: E402
 from app.routes import users as users_routes  # noqa: E402
 
 FAKE_STORAGE: dict[str, bytes] = {}
@@ -66,6 +67,9 @@ async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[AsyncClient,
     def fake_put_url(object_key: str, expires_seconds: int = 3600) -> str:
         return f"https://storage.test/upload/{object_key}?expires={expires_seconds}"
 
+    def fake_get_url(object_key: str, expires_seconds: int = 3600) -> str:
+        return f"https://storage.test/get/{object_key}?expires={expires_seconds}"
+
     def fake_get_object_bytes(object_key: str) -> bytes:
         return _fake_object_bytes(object_key)
 
@@ -77,6 +81,7 @@ async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[AsyncClient,
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(users_routes, "presigned_put_url", fake_put_url)
+    monkeypatch.setattr(media_routes, "presigned_get_url", fake_get_url)
     monkeypatch.setattr(books_routes, "presigned_put_url", fake_put_url)
     monkeypatch.setattr(books_routes, "get_object_bytes", fake_get_object_bytes)
     monkeypatch.setattr(books_routes, "get_object_size", fake_get_object_size)
