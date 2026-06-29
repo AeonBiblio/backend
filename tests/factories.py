@@ -10,11 +10,11 @@ from app.models.library import Readlist
 from app.models.promo import PromoCode
 from app.models.review import Review, ReviewSentiment
 from app.models.subscription import PaymentStatus, SubscriptionPlan, SubscriptionStatus, UserSubscription
-from app.models.user import User, UserRole
+from app.models.user import PaymentProfile, User, UserRole
 
 
 def auth_headers(user: User) -> dict[str, str]:
-    return {"Authorization": f"Bearer {create_access_token(str(user.id))}"}
+    return {"Cookie": f"aeon_access_token={create_access_token(str(user.id))}"}
 
 
 async def create_user(
@@ -138,6 +138,19 @@ async def create_active_subscription(
     await db.commit()
     await db.refresh(subscription)
     return subscription
+
+
+async def create_payment_profile(
+    db: AsyncSession,
+    *,
+    user: User,
+    payment_method_token: str = "pm_mock_1111",
+) -> PaymentProfile:
+    profile = PaymentProfile(user_id=user.id, payment_method_token=payment_method_token)
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
 
 
 async def create_author_balance(

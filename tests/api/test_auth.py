@@ -61,7 +61,7 @@ async def test_register_rejects_duplicate_email_or_username(client):
     assert response.status_code == 409
 
 
-async def test_login_returns_access_and_refresh_tokens(client):
+async def test_login_sets_http_only_auth_cookies(client):
     await client.post(
         "/auth/register",
         json={
@@ -78,9 +78,13 @@ async def test_login_returns_access_and_refresh_tokens(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["token_type"] == "bearer"
-    assert data["access_token"]
-    assert data["refresh_token"]
+    assert data["email"] == "reader@example.com"
+    assert "access_token" not in data
+    assert "refresh_token" not in data
+    assert response.cookies.get("aeon_access_token")
+    assert response.cookies.get("aeon_refresh_token")
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "HttpOnly" in set_cookie
 
 
 async def test_login_rejects_wrong_password(client):
@@ -114,12 +118,13 @@ async def test_refresh_rotates_refresh_token(client, db_session):
         "/auth/login",
         json={"email": "reader@example.com", "password": "password123"},
     )
-    old_refresh_token = login.json()["refresh_token"]
+    old_refresh_token = login.cookies.get("aeon_refresh_token")
 
-    response = await client.post("/auth/refresh", json={"refresh_token": old_refresh_token})
+    response = await client.post("/auth/refresh")
 
     assert response.status_code == 200
-    assert response.json()["refresh_token"] != old_refresh_token
+    assert response.json() == {"ok": True}
+    assert response.cookies.get("aeon_refresh_token") != old_refresh_token
     result = await db_session.execute(select(RefreshToken).where(RefreshToken.revoked_at.is_not(None)))
     assert result.scalar_one_or_none() is not None
 
@@ -138,11 +143,10 @@ async def test_logout_revokes_refresh_token(client, db_session):
         json={"email": "reader@example.com", "password": "password123"},
     )
 
-    response = await client.post(
-        "/auth/logout",
-        json={"refresh_token": login.json()["refresh_token"]},
-    )
+    response = await client.post("/auth/logout")
 
     assert response.status_code == 204
+    assert response.cookies.get("aeon_access_token") is None
+    assert response.cookies.get("aeon_refresh_token") is None
     result = await db_session.execute(select(RefreshToken).where(RefreshToken.revoked_at.is_not(None)))
     assert result.scalar_one_or_none() is not None

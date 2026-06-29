@@ -3,16 +3,14 @@ from typing import AsyncGenerator
 from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_token
 from app.database.session import AsyncSessionLocal
 
-bearer_scheme = HTTPBearer()
-optional_bearer_scheme = HTTPBearer(auto_error=False)
+ACCESS_COOKIE_NAME = "aeon_access_token"
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -21,18 +19,20 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
+    access_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE_NAME),
 ):
     from app.models.user import User
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось проверить учётные данные",
-        headers={"WWW-Authenticate": "Bearer"},
     )
+    if access_cookie is None:
+        raise credentials_exception
+
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(access_cookie)
         if payload.get("type") != "access":
             raise credentials_exception
         user_id: str = payload.get("sub")
@@ -51,15 +51,15 @@ async def get_current_user(
 
 
 async def get_optional_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(optional_bearer_scheme),
     db: AsyncSession = Depends(get_db),
+    access_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE_NAME),
 ):
     from app.models.user import User
 
-    if credentials is None:
+    if access_cookie is None:
         return None
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(access_cookie)
         if payload.get("type") != "access":
             return None
         user_id: str = payload.get("sub")

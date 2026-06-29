@@ -2,7 +2,6 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.dependencies import get_current_user, require_active_subscription
 from app.core.security import create_access_token, create_refresh_token
@@ -10,14 +9,10 @@ from app.models.subscription import SubscriptionStatus
 from tests.factories import create_active_subscription, create_subscription_plan, create_user
 
 
-def credentials(token: str) -> HTTPAuthorizationCredentials:
-    return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-
-
 async def test_get_current_user_returns_user_for_valid_access_token(db_session):
     user = await create_user(db_session, email="current@example.com", username="current")
 
-    current_user = await get_current_user(credentials(create_access_token(str(user.id))), db_session)
+    current_user = await get_current_user(db_session, create_access_token(str(user.id)))
 
     assert current_user.id == user.id
 
@@ -26,7 +21,7 @@ async def test_get_current_user_rejects_refresh_token(db_session):
     user = await create_user(db_session, email="refresh@example.com", username="refresh")
 
     with pytest.raises(HTTPException) as exc:
-        await get_current_user(credentials(create_refresh_token(str(user.id))), db_session)
+        await get_current_user(db_session, create_refresh_token(str(user.id)))
 
     assert exc.value.status_code == 401
 
@@ -40,7 +35,7 @@ async def test_get_current_user_rejects_blocked_user(db_session):
     )
 
     with pytest.raises(HTTPException) as exc:
-        await get_current_user(credentials(create_access_token(str(user.id))), db_session)
+        await get_current_user(db_session, create_access_token(str(user.id)))
 
     assert exc.value.status_code == 403
 
