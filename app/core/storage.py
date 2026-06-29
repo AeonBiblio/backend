@@ -33,7 +33,7 @@ def get_minio_public_client() -> Minio:
             endpoint,
             access_key=settings.minio_access_key,
             secret_key=settings.minio_secret_key,
-            secure=settings.minio_secure,
+            secure=settings.minio_public_secure_resolved,
             region=_MINIO_REGION,
         )
     return _public_client

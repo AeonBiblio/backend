@@ -16,9 +16,16 @@ class Settings(BaseSettings):
     minio_secret_key: str
     minio_bucket: str = "aeonbiblio"
     minio_secure: bool = False
+    minio_public_secure: bool | None = None
 
     app_env: str = "development"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def minio_public_secure_resolved(self) -> bool:
+        if self.minio_public_secure is not None:
+            return self.minio_public_secure
+        return self.minio_secure
 
     @property
     def cors_origin_list(self) -> list[str]:
