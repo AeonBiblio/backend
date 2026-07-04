@@ -24,7 +24,7 @@ from app.database.session import AsyncSessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 # Import model modules so SQLAlchemy metadata contains all tables.
-from app.models import book, book_rating, earnings, library, promo, review, review_vote, subscription, user  # noqa: F401,E402
+from app.models import book, book_rating, earnings, library, promo, reader, review, review_vote, subscription, user  # noqa: F401,E402
 from app.routes import books as books_routes  # noqa: E402
 from app.routes import media as media_routes  # noqa: E402
 from app.routes import users as users_routes  # noqa: E402

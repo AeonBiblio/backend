@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.database.session import engine
-from app.routes import auth, users, books, reviews, library, subscriptions, earnings, media
+from app.routes import auth, users, books, reviews, library, subscriptions, earnings, media, reader
 from app.core.config import settings
 
 
@@ -33,6 +33,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(books.router, prefix="/books", tags=["books"])
+app.include_router(reader.router, prefix="/books", tags=["reader"])
 app.include_router(reviews.router, tags=["reviews"])
 app.include_router(library.router, prefix="/library", tags=["library"])
 app.include_router(subscriptions.router, prefix="/subscriptions", tags=["subscriptions"])

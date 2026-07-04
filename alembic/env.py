@@ -20,6 +20,7 @@ import app.models.review  # noqa: F401
 import app.models.library  # noqa: F401
 import app.models.subscription  # noqa: F401
 import app.models.earnings  # noqa: F401
+import app.models.reader  # noqa: F401
 
 config = context.config
 
