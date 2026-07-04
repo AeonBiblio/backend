@@ -3,6 +3,8 @@ import html
 from dataclasses import dataclass
 from xml.etree import ElementTree
 
+from app.core.html_sanitizer import has_readable_chapter_content
+
 
 @dataclass(frozen=True)
 class ParsedFb2Chapter:
@@ -41,7 +43,7 @@ def parse_fb2(fb2_bytes: bytes) -> ParsedFb2:
     chapters = []
     for section in sections:
         chapter_html, title, asset_ids = _section_to_html(section)
-        if not chapter_html:
+        if not has_readable_chapter_content(chapter_html):
             continue
         chapters.append(
             ParsedFb2Chapter(

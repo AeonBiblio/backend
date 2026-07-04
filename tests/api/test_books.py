@@ -35,11 +35,15 @@ def _minimal_epub_bytes() -> bytes:
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
   <manifest>
     <item id="chap1" href="chapters/chapter1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="empty" href="chapters/empty.xhtml" media-type="application/xhtml+xml"/>
+    <item id="imgonly" href="chapters/image-only.xhtml" media-type="application/xhtml+xml"/>
     <item id="chap2" href="chapters/chapter2.xhtml" media-type="application/xhtml+xml"/>
     <item id="img1" href="images/pic.png" media-type="image/png"/>
   </manifest>
   <spine>
     <itemref idref="chap1"/>
+    <itemref idref="empty"/>
+    <itemref idref="imgonly"/>
     <itemref idref="chap2"/>
   </spine>
 </package>""",
@@ -49,6 +53,19 @@ def _minimal_epub_bytes() -> bytes:
             """<html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Fallback title</title><script>alert(1)</script></head>
 <body><h1 onclick="alert(1)">Chapter One</h1><img src="../images/pic.png"/></body>
+</html>""",
+        )
+        archive.writestr(
+            "OEBPS/chapters/empty.xhtml",
+            """<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Empty Metadata Only</title></head>
+<body><section><br /></section></body>
+</html>""",
+        )
+        archive.writestr(
+            "OEBPS/chapters/image-only.xhtml",
+            """<html xmlns="http://www.w3.org/1999/xhtml">
+<body><img src="../images/pic.png"/></body>
 </html>""",
         )
         archive.writestr(
@@ -67,6 +84,12 @@ def _minimal_fb2_bytes() -> bytes:
     <section>
       <title><p>FB2 Chapter One</p></title>
       <p>Hello FB2</p>
+      <image l:href="#cover.png"/>
+    </section>
+    <section>
+      <empty-line/>
+    </section>
+    <section>
       <image l:href="#cover.png"/>
     </section>
     <section>

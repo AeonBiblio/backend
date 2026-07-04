@@ -7,7 +7,7 @@ from io import BytesIO
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
-from app.core.html_sanitizer import sanitize_chapter_html
+from app.core.html_sanitizer import has_readable_chapter_content, sanitize_chapter_html
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,8 @@ def parse_epub(epub_bytes: bytes) -> ParsedEpub:
 
             html = _decode_bytes(archive.read(href))
             sanitized_html = sanitize_chapter_html(html)
+            if not has_readable_chapter_content(sanitized_html):
+                continue
             asset_ids = _extract_asset_ids(sanitized_html, posixpath.dirname(href), manifest)
             chapters.append(
                 ParsedEpubChapter(

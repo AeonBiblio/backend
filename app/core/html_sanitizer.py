@@ -54,6 +54,7 @@ TAG_ATTRS = {
 URI_ATTRS = {"href", "src"}
 ALLOWED_URI_SCHEMES = {"", "http", "https", "mailto"}
 SKIP_CONTENT_TAGS = {"script", "style", "iframe", "object", "embed", "svg", "math", "template"}
+NON_READER_TEXT_TAGS = {"head", "title"}
 
 
 def sanitize_chapter_html(html: str) -> str:
@@ -61,6 +62,13 @@ def sanitize_chapter_html(html: str) -> str:
     parser.feed(html)
     parser.close()
     return parser.value.strip()
+
+
+def has_readable_chapter_content(html: str) -> bool:
+    parser = _ReadableContentParser()
+    parser.feed(html)
+    parser.close()
+    return parser.has_content
 
 
 class _ChapterHTMLSanitizer(HTMLParser):
@@ -136,3 +144,25 @@ def _is_safe_uri(value: str) -> bool:
         return True
     parsed = urlparse(value)
     return parsed.scheme.lower() in ALLOWED_URI_SCHEMES
+
+
+class _ReadableContentParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.has_content = False
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in SKIP_CONTENT_TAGS or tag in NON_READER_TEXT_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in SKIP_CONTENT_TAGS or tag in NON_READER_TEXT_TAGS:
+            if self._skip_depth:
+                self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth and data.strip():
+            self.has_content = True
