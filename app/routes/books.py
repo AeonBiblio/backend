@@ -12,6 +12,7 @@ from app.core.book_rating import batch_reviews_count, get_book_rating_stats
 from app.core.dependencies import get_current_user, get_db, get_optional_current_user, require_author
 from app.core.epub import get_epub_asset, parse_epub
 from app.core.fb2 import get_fb2_asset, parse_fb2
+from app.core.html_sanitizer import sanitize_chapter_html
 from app.core.storage import (
     get_object_bytes,
     get_object_size,
@@ -838,6 +839,7 @@ async def _process_reader_content(book: Book, db: AsyncSession) -> None:
 
     now = datetime.now(timezone.utc)
     for chapter in parsed.chapters:
+        sanitized_html = sanitize_chapter_html(chapter.html)
         db.add(
             EpubChapter(
                 book_id=book.id,
@@ -845,8 +847,8 @@ async def _process_reader_content(book: Book, db: AsyncSession) -> None:
                 title=chapter.title,
                 source_href=chapter.source_href,
                 content_type="html",
-                html=chapter.html,
-                size_bytes=chapter.size_bytes,
+                html=sanitized_html,
+                size_bytes=len(sanitized_html.encode("utf-8")),
                 asset_ids=chapter.asset_ids,
                 created_at=now,
             )

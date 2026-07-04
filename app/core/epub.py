@@ -7,6 +7,8 @@ from io import BytesIO
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
+from app.core.html_sanitizer import sanitize_chapter_html
+
 
 @dataclass(frozen=True)
 class ParsedEpubChapter:
@@ -93,13 +95,6 @@ def get_epub_asset(epub_bytes: bytes, asset_id: str) -> tuple[bytes, str]:
         if not media_type or source_href not in archive.namelist():
             raise KeyError(asset_id)
         return archive.read(source_href), media_type
-
-
-def sanitize_chapter_html(html: str) -> str:
-    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\s+on[a-zA-Z]+\s*=\s*(['\"]).*?\1", "", html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"\s+(href|src)\s*=\s*(['\"])\s*javascript:.*?\2", "", html, flags=re.IGNORECASE | re.DOTALL)
-    return html.strip()
 
 
 def _get_opf_path(archive: zipfile.ZipFile) -> str:
